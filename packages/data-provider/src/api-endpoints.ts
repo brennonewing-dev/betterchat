@@ -93,6 +93,8 @@ export const revokeUserKey = (name: string) => `${keysEndpoint}/${name}`;
 
 export const revokeAllUserKeys = () => `${keysEndpoint}?all=true`;
 
+export const litellmBudget = () => `${keysEndpoint}/budget`;
+
 export const conversationsRoot = `${BASE_URL}/api/convos`;
 
 export const conversations = (params: q.ConversationListParams) => {

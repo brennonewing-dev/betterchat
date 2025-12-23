@@ -60,6 +60,8 @@ export enum QueryKeys {
   /* MCP Servers */
   mcpServers = 'mcpServers',
   mcpServer = 'mcpServer',
+  /* LiteLLM */
+  litellmBudget = 'litellmBudget',
 }
 
 // Dynamic query keys that require parameters

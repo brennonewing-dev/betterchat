@@ -1,6 +1,7 @@
 const { CacheKeys } = require('librechat-data-provider');
 const { logger, AppService } = require('@librechat/data-schemas');
 const { loadAndFormatTools } = require('~/server/services/start/tools');
+const { getDynamicEndpoints } = require('~/server/services/DynamicEndpoints');
 const loadCustomConfig = require('./loadCustomConfig');
 const { setCachedTools } = require('./getCachedTools');
 const getLogStores = require('~/cache/getLogStores');
@@ -8,9 +9,47 @@ const paths = require('~/config/paths');
 
 const BASE_CONFIG_KEY = '_BASE_';
 
+/**
+ * Check if dynamic OpenRouter endpoints are enabled
+ * @returns {boolean}
+ */
+function isDynamicEndpointsEnabled() {
+  return process.env.ENABLE_DYNAMIC_ENDPOINTS === 'true';
+}
+
 const loadBaseConfig = async () => {
   /** @type {TCustomConfig} */
   const config = (await loadCustomConfig()) ?? {};
+
+  // Merge dynamic endpoints if enabled
+  if (isDynamicEndpointsEnabled()) {
+    try {
+      const dynamicEndpoints = await getDynamicEndpoints();
+      if (dynamicEndpoints && dynamicEndpoints.length > 0) {
+        // Initialize endpoints.custom array if it doesn't exist
+        if (!config.endpoints) {
+          config.endpoints = {};
+        }
+        if (!Array.isArray(config.endpoints.custom)) {
+          config.endpoints.custom = [];
+        }
+
+        // Merge dynamic endpoints with static ones
+        // Dynamic endpoints are added after static ones
+        config.endpoints.custom = [
+          ...config.endpoints.custom,
+          ...dynamicEndpoints,
+        ];
+
+        logger.info(
+          `[AppConfig] Merged ${dynamicEndpoints.length} dynamic OpenRouter endpoints`
+        );
+      }
+    } catch (error) {
+      logger.error('[AppConfig] Failed to load dynamic endpoints:', error);
+    }
+  }
+
   /** @type {Record<string, FunctionTool>} */
   const systemTools = loadAndFormatTools({
     adminFilter: config.filteredTools,

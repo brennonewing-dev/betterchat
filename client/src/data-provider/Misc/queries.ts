@@ -31,6 +31,24 @@ export const useGetUserBalance = (
   });
 };
 
+export const useGetLiteLLMBudget = (
+  config?: UseQueryOptions<dataService.TLiteLLMBudgetResponse>,
+): QueryObserverResult<dataService.TLiteLLMBudgetResponse> => {
+  const queriesEnabled = useRecoilValue<boolean>(store.queriesEnabled);
+  return useQuery<dataService.TLiteLLMBudgetResponse>(
+    [QueryKeys.litellmBudget],
+    () => dataService.getLiteLLMBudget(),
+    {
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      refetchOnMount: true,
+      retry: false,
+      ...config,
+      enabled: (config?.enabled ?? true) === true && queriesEnabled,
+    },
+  );
+};
+
 export const useGetSearchEnabledQuery = (
   config?: UseQueryOptions<boolean>,
 ): QueryObserverResult<boolean> => {

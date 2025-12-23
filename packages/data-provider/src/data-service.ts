@@ -109,6 +109,21 @@ export function getUserBalance(): Promise<t.TBalanceResponse> {
   return request.get(endpoints.balance());
 }
 
+export interface TLiteLLMBudgetResponse {
+  maxBudget: number;
+  usedBudget: number;
+  remainingBudget: number;
+  budgetDuration: string;
+  budgetResetAt: string | null;
+  keyAlias: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export function getLiteLLMBudget(): Promise<TLiteLLMBudgetResponse> {
+  return request.get(endpoints.litellmBudget());
+}
+
 export const updateTokenCount = (text: string) => {
   return request.post(endpoints.tokenizer(), { arg: text });
 };

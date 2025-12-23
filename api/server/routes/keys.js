@@ -1,5 +1,6 @@
 const express = require('express');
 const { updateUserKey, deleteUserKey, getUserKeyExpiry } = require('~/models');
+const { getLiteLLMBudgetStatus } = require('~/server/services/AuthService');
 const { requireJwtAuth } = require('~/server/middleware');
 
 const router = express.Router();
@@ -31,6 +32,25 @@ router.get('/', requireJwtAuth, async (req, res) => {
   const { name } = req.query;
   const response = await getUserKeyExpiry({ userId: req.user.id, name });
   res.status(200).send(response);
+});
+
+/**
+ * GET /keys/budget
+ * Get the user's LiteLLM budget status
+ * Returns: { maxBudget, usedBudget, remainingBudget, budgetDuration, budgetResetAt, ... }
+ */
+router.get('/budget', requireJwtAuth, async (req, res) => {
+  try {
+    const result = await getLiteLLMBudgetStatus(req.user.id);
+
+    if (!result.success) {
+      return res.status(404).json({ error: result.error });
+    }
+
+    res.status(200).json(result.data);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get budget status' });
+  }
 });
 
 module.exports = router;

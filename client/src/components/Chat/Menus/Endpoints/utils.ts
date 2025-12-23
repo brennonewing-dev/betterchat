@@ -9,6 +9,7 @@ import type {
 } from 'librechat-data-provider';
 import type { useLocalize } from '~/hooks';
 import SpecIcon from '~/components/Chat/Menus/Endpoints/components/SpecIcon';
+import { transformModelForDisplay } from '~/utils';
 import { Endpoint, SelectedValues } from '~/common';
 
 export function filterItems<
@@ -205,7 +206,8 @@ export const getDisplayValue = ({
       return endpoint.assistantNames[selectedValues.model];
     }
 
-    return selectedValues.model;
+    // Transform model name for display (strips provider prefix for OpenRouter models)
+    return transformModelForDisplay(selectedValues.model, endpoint.value);
   }
 
   if (selectedValues.endpoint) {

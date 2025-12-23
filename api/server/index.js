@@ -23,6 +23,7 @@ const createValidateImageRequest = require('./middleware/validateImageRequest');
 const { jwtLogin, ldapLogin, passportLogin } = require('~/strategies');
 const { updateInterfacePermissions } = require('~/models/interface');
 const { checkMigrations } = require('./services/start/migration');
+const { initializeDynamicEndpoints, startRefreshScheduler } = require('./services/DynamicEndpoints');
 const initializeMCPs = require('./services/initializeMCPs');
 const configureSocialLogins = require('./socialLogins');
 const { getAppConfig } = require('./services/Config');
@@ -192,6 +193,12 @@ const startServer = async () => {
     await initializeMCPs();
     await initializeOAuthReconnectManager();
     await checkMigrations();
+
+    // Initialize dynamic OpenRouter endpoints if enabled
+    if (process.env.ENABLE_DYNAMIC_ENDPOINTS === 'true') {
+      await initializeDynamicEndpoints();
+      startRefreshScheduler();
+    }
   });
 };
 

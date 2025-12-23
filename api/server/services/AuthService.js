@@ -19,6 +19,7 @@ const {
   generateToken,
   deleteUserById,
   generateRefreshToken,
+  updateUserKey,
 } = require('~/models');
 const { registerSchema } = require('~/strategies/validators');
 const { getAppConfig } = require('~/server/services/Config');
@@ -27,6 +28,232 @@ const { sendEmail } = require('~/server/utils');
 const domains = {
   client: process.env.DOMAIN_CLIENT,
   server: process.env.DOMAIN_SERVER,
+};
+
+const LITELLM_PROXY_URL = process.env.LITELLM_PROXY_URL || 'http://betterchat-litellm:4000';
+const LITELLM_BUDGET_DURATION_DAYS = 30;
+const LITELLM_MAX_BUDGET = 10.0;
+
+/**
+ * Calculate the budget expiration date
+ * @returns {string} ISO date string for when the budget expires
+ */
+const calculateBudgetExpiration = () => {
+  const expirationDate = new Date();
+  expirationDate.setDate(expirationDate.getDate() + LITELLM_BUDGET_DURATION_DAYS);
+  return expirationDate.toISOString();
+};
+
+/**
+ * Create a LiteLLM virtual key for a new user
+ * @param {string} userId - The user's ID
+ * @param {string} userEmail - The user's email address
+ * @returns {Promise<{success: boolean, key?: string, error?: string}>}
+ */
+const createLiteLLMKey = async (userId, userEmail) => {
+  const masterKey = process.env.LITELLM_MASTER_KEY;
+  if (!masterKey) {
+    logger.warn('[createLiteLLMKey] LITELLM_MASTER_KEY not configured, skipping key creation');
+    return { success: false, error: 'LITELLM_MASTER_KEY not configured' };
+  }
+
+  try {
+    const response = await fetch(`${LITELLM_PROXY_URL}/key/generate`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${masterKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        key_alias: userEmail,
+        max_budget: LITELLM_MAX_BUDGET,
+        budget_duration: `${LITELLM_BUDGET_DURATION_DAYS}d`,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`[createLiteLLMKey] Failed to create key: ${response.status} - ${errorText}`);
+      return { success: false, error: `LiteLLM API error: ${response.status}` };
+    }
+
+    const data = await response.json();
+    const litellmKey = data.key;
+
+    if (!litellmKey) {
+      logger.error('[createLiteLLMKey] No key returned from LiteLLM');
+      return { success: false, error: 'No key returned from LiteLLM' };
+    }
+
+    await updateUserKey({
+      userId: userId.toString(),
+      name: 'litellm',
+      value: JSON.stringify({
+        apiKey: litellmKey,
+        budgetExpiresAt: calculateBudgetExpiration(),
+      }),
+    });
+
+    logger.info(`[createLiteLLMKey] Successfully created LiteLLM key for user [Email: ${userEmail}]`);
+    return { success: true, key: litellmKey };
+  } catch (error) {
+    logger.error('[createLiteLLMKey] Error creating LiteLLM key:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Renew the LiteLLM key budget for a user
+ * @param {string} userId - The user's ID
+ * @param {string} apiKey - The existing LiteLLM API key
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+const renewLiteLLMKeyBudget = async (userId, apiKey) => {
+  const masterKey = process.env.LITELLM_MASTER_KEY;
+  if (!masterKey) {
+    return { success: false, error: 'LITELLM_MASTER_KEY not configured' };
+  }
+
+  try {
+    const response = await fetch(`${LITELLM_PROXY_URL}/key/update`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${masterKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        key: apiKey,
+        max_budget: LITELLM_MAX_BUDGET,
+        budget_duration: `${LITELLM_BUDGET_DURATION_DAYS}d`,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`[renewLiteLLMKeyBudget] Failed to renew key: ${response.status} - ${errorText}`);
+      return { success: false, error: `LiteLLM API error: ${response.status}` };
+    }
+
+    // Update the stored key with new expiration
+    await updateUserKey({
+      userId: userId.toString(),
+      name: 'litellm',
+      value: JSON.stringify({
+        apiKey: apiKey,
+        budgetExpiresAt: calculateBudgetExpiration(),
+      }),
+    });
+
+    logger.info(`[renewLiteLLMKeyBudget] Successfully renewed LiteLLM key budget for user ${userId}`);
+    return { success: true };
+  } catch (error) {
+    logger.error('[renewLiteLLMKeyBudget] Error renewing LiteLLM key budget:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Check and renew LiteLLM key if budget has expired
+ * @param {string} userId - The user's ID
+ * @returns {Promise<void>}
+ */
+const checkAndRenewLiteLLMKey = async (userId) => {
+  const masterKey = process.env.LITELLM_MASTER_KEY;
+  if (!masterKey) {
+    return;
+  }
+
+  try {
+    const { getUserKeyValues } = require('~/models');
+    let keyData;
+
+    try {
+      keyData = await getUserKeyValues({ userId, name: 'litellm' });
+    } catch {
+      // User doesn't have a LiteLLM key, skip renewal
+      return;
+    }
+
+    if (!keyData || !keyData.apiKey) {
+      return;
+    }
+
+    const budgetExpiresAt = keyData.budgetExpiresAt;
+
+    // If no expiration date stored, or if expired, renew the budget
+    if (!budgetExpiresAt || new Date(budgetExpiresAt) <= new Date()) {
+      logger.info(`[checkAndRenewLiteLLMKey] Budget expired for user ${userId}, renewing...`);
+      await renewLiteLLMKeyBudget(userId, keyData.apiKey);
+    }
+  } catch (error) {
+    logger.error(`[checkAndRenewLiteLLMKey] Error checking LiteLLM key for user ${userId}:`, error);
+  }
+};
+
+/**
+ * Get LiteLLM budget status for a user
+ * @param {string} userId - The user's ID
+ * @returns {Promise<{success: boolean, data?: object, error?: string}>}
+ */
+const getLiteLLMBudgetStatus = async (userId) => {
+  const masterKey = process.env.LITELLM_MASTER_KEY;
+  if (!masterKey) {
+    return { success: false, error: 'LiteLLM not configured' };
+  }
+
+  try {
+    const { getUserKeyValues } = require('~/models');
+    let keyData;
+
+    try {
+      keyData = await getUserKeyValues({ userId, name: 'litellm' });
+    } catch {
+      return { success: false, error: 'No LiteLLM key found for user' };
+    }
+
+    if (!keyData || !keyData.apiKey) {
+      return { success: false, error: 'No LiteLLM key found for user' };
+    }
+
+    // Call LiteLLM API to get key info
+    const response = await fetch(`${LITELLM_PROXY_URL}/key/info`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${masterKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        key: keyData.apiKey,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`[getLiteLLMBudgetStatus] Failed to get key info: ${response.status} - ${errorText}`);
+      return { success: false, error: `LiteLLM API error: ${response.status}` };
+    }
+
+    const data = await response.json();
+    const keyInfo = data.info || data;
+
+    // Extract relevant budget information
+    const budgetStatus = {
+      maxBudget: keyInfo.max_budget ?? LITELLM_MAX_BUDGET,
+      usedBudget: keyInfo.spend ?? 0,
+      remainingBudget: (keyInfo.max_budget ?? LITELLM_MAX_BUDGET) - (keyInfo.spend ?? 0),
+      budgetDuration: keyInfo.budget_duration ?? `${LITELLM_BUDGET_DURATION_DAYS}d`,
+      budgetResetAt: keyInfo.budget_reset_at ?? keyData.budgetExpiresAt ?? null,
+      keyAlias: keyInfo.key_alias ?? null,
+      createdAt: keyInfo.created_at ?? null,
+      updatedAt: keyInfo.updated_at ?? null,
+    };
+
+    return { success: true, data: budgetStatus };
+  } catch (error) {
+    logger.error(`[getLiteLLMBudgetStatus] Error getting budget status for user ${userId}:`, error);
+    return { success: false, error: error.message };
+  }
 };
 
 const isProduction = process.env.NODE_ENV === 'production';
@@ -231,6 +458,11 @@ const registerUser = async (user, additionalData = {}) => {
     } else {
       await updateUser(newUserId, { emailVerified: true });
     }
+
+    // Create LiteLLM virtual key for the new user (non-blocking)
+    createLiteLLMKey(newUserId.toString(), email).catch((err) => {
+      logger.error(`[registerUser] Failed to create LiteLLM key for user [Email: ${email}]:`, err);
+    });
 
     return { status: 200, message: genericVerificationMessage };
   } catch (err) {
@@ -544,4 +776,6 @@ module.exports = {
   setOpenIDAuthTokens,
   requestPasswordReset,
   resendVerificationEmail,
+  checkAndRenewLiteLLMKey,
+  getLiteLLMBudgetStatus,
 };

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useGetStartupConfig, useGetUserBalance } from '~/data-provider';
 import { useAuthContext, useLocalize } from '~/hooks';
+import { LiteLLMBudget } from '../LiteLLM';
 import TokenCreditsItem from './TokenCreditsItem';
 import AutoRefillSettings from './AutoRefillSettings';
 
@@ -32,29 +33,37 @@ function Balance() {
     refillIntervalValue !== undefined;
 
   return (
-    <div className="flex flex-col gap-4 p-4 text-sm text-text-primary">
-      {/* Token credits display */}
-      <TokenCreditsItem tokenCredits={tokenCredits} />
+    <div className="flex flex-col gap-6 text-sm text-text-primary">
+      {/* Token credits section */}
+      <div className="flex flex-col gap-4 p-4">
+        {/* Token credits display */}
+        <TokenCreditsItem tokenCredits={tokenCredits} />
 
-      {/* Auto-refill display */}
-      {autoRefillEnabled ? (
-        hasValidRefillSettings ? (
-          <AutoRefillSettings
-            lastRefill={lastRefill}
-            refillAmount={refillAmount}
-            refillIntervalUnit={refillIntervalUnit}
-            refillIntervalValue={refillIntervalValue}
-          />
+        {/* Auto-refill display */}
+        {autoRefillEnabled ? (
+          hasValidRefillSettings ? (
+            <AutoRefillSettings
+              lastRefill={lastRefill}
+              refillAmount={refillAmount}
+              refillIntervalUnit={refillIntervalUnit}
+              refillIntervalValue={refillIntervalValue}
+            />
+          ) : (
+            <div className="text-sm text-red-600">
+              {localize('com_nav_balance_auto_refill_error')}
+            </div>
+          )
         ) : (
-          <div className="text-sm text-red-600">
-            {localize('com_nav_balance_auto_refill_error')}
+          <div className="text-sm text-gray-600">
+            {localize('com_nav_balance_auto_refill_disabled')}
           </div>
-        )
-      ) : (
-        <div className="text-sm text-gray-600">
-          {localize('com_nav_balance_auto_refill_disabled')}
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* LiteLLM Budget section */}
+      <div className="border-t border-border-light">
+        <LiteLLMBudget />
+      </div>
     </div>
   );
 }

@@ -9,6 +9,7 @@ const {
   resetPassword,
   setAuthTokens,
   registerUser,
+  checkAndRenewLiteLLMKey,
 } = require('~/server/services/AuthService');
 const {
   deleteAllUserSessions,
@@ -119,6 +120,11 @@ const refreshController = async (req, res) => {
         expires_at: claims.exp,
       };
 
+      // Check and renew LiteLLM key budget if expired (non-blocking)
+      checkAndRenewLiteLLMKey(user._id.toString()).catch((err) => {
+        logger.error('[refreshController] Error checking LiteLLM key renewal for OpenID user:', err);
+      });
+
       return res.status(200).send({ token, user });
     } catch (error) {
       logger.error('[refreshController] OpenID token refresh error', error);
@@ -161,6 +167,11 @@ const refreshController = async (req, res) => {
       } catch (err) {
         logger.warn(`[refreshController] Cannot attempt OAuth MCP servers reconnection:`, err);
       }
+
+      // Check and renew LiteLLM key budget if expired (non-blocking)
+      checkAndRenewLiteLLMKey(userId).catch((err) => {
+        logger.error('[refreshController] Error checking LiteLLM key renewal:', err);
+      });
 
       res.status(200).send({ token, user });
     } else if (req?.query?.retry) {
