@@ -1,7 +1,7 @@
 import React from 'react';
 import { useGetLiteLLMBudget } from '~/data-provider';
 import { useAuthContext, useLocalize } from '~/hooks';
-import { Spinner } from '~/components/svg';
+import { Spinner } from '@librechat/client';
 
 function LiteLLMBudget() {
   const localize = useLocalize();
